@@ -4,6 +4,7 @@ use std::ops::Bound;
 use std::time::{Duration, Instant};
 
 use rand::prelude::*;
+
 use crate::order::*;
 
 const EPS: f64 = 0.01;
@@ -28,8 +29,7 @@ pub struct OrderBook {
 
 impl OrderBook {
   pub fn new(book_type: TypeOrder,
-         name: Asset) -> OrderBook
-  {
+             name: Asset) -> OrderBook {
     OrderBook {
       book_type,
       tree: BTreeMap::new(),
@@ -89,60 +89,58 @@ pub struct Engine {
 
 impl Engine {
   pub fn add_order(&mut self, order: Order) {
-    {
-      let mut cursor = match order.type_order {
-        TypeOrder::Sell => self.buy_book.lower_bound(order.price),
-        TypeOrder::Buy => self.sell_book.upper_bound(order.price),
-      };
-      let mut add = Vec::new();
-      let mut remove = Vec::new();
-      if cursor.key().is_none() {
-        match order.type_order {
-          TypeOrder::Sell => { self.sell_book.add_order(order); }
-          TypeOrder::Buy => { self.buy_book.add_order(order); }
-        }
-      } else {
-        let mut need = order.quantity;
-        while need > EPS && cursor.key().is_some() {
-          let value = cursor.value().unwrap().clone();
-          if cursor.key().unwrap().quantity >= need {
-            let mut incomplete_order = cursor.remove_current().unwrap().0;
-            self.current_price = incomplete_order.price;
-            incomplete_order.quantity -= need;
-            if incomplete_order.quantity > EPS {
-              add.push((incomplete_order.hash, incomplete_order.clone()));
-            } else {
-              remove.push(incomplete_order.hash);
-            }
-            need = 0.;
+    let mut cursor = match order.type_order {
+      TypeOrder::Sell => self.buy_book.lower_bound(order.price),
+      TypeOrder::Buy => self.sell_book.upper_bound(order.price),
+    };
+    let mut add = Vec::new();
+    let mut remove = Vec::new();
+    if cursor.key().is_none() {
+      match order.type_order {
+        TypeOrder::Sell => { self.sell_book.add_order(order); }
+        TypeOrder::Buy => { self.buy_book.add_order(order); }
+      }
+    } else {
+      let mut need = order.quantity;
+      while need > EPS && cursor.key().is_some() {
+        let value = cursor.value().unwrap().clone();
+        if cursor.key().unwrap().quantity >= need {
+          let mut incomplete_order = cursor.remove_current().unwrap().0;
+          self.current_price = incomplete_order.price;
+          incomplete_order.quantity -= need;
+          if incomplete_order.quantity > EPS {
+            add.push((incomplete_order.hash, incomplete_order.clone()));
           } else {
-            remove.push(value);
-            let part_filled_order = cursor.remove_current_and_move_back().unwrap().0;
-            self.current_price = part_filled_order.price;
-            if order.type_order == TypeOrder::Sell {
-              cursor.move_next();
-            }
-            need -= part_filled_order.quantity;
+            remove.push(incomplete_order.hash);
           }
-        }
-        if need > EPS {
-          match order.type_order {
-            TypeOrder::Sell => { self.sell_book.add_order(Order { quantity: need, ..order }); }
-            TypeOrder::Buy => { self.buy_book.add_order(Order { quantity: need, ..order }); }
+          need = 0.;
+        } else {
+          remove.push(value);
+          let part_filled_order = cursor.remove_current_and_move_back().unwrap().0;
+          self.current_price = part_filled_order.price;
+          if order.type_order == TypeOrder::Sell {
+            cursor.move_next();
           }
+          need -= part_filled_order.quantity;
         }
       }
-      let book = match order.type_order {
-        TypeOrder::Sell => &mut self.buy_book,
-        TypeOrder::Buy => &mut self.sell_book,
-      };
-      remove.into_iter().for_each(|x| {
-        book.references.remove(&x);
-      });
-      add.into_iter().for_each(|(_, x)| {
-        book.add_order(x);
-      });
+      if need > EPS {
+        match order.type_order {
+          TypeOrder::Sell => { self.sell_book.add_order(Order { quantity: need, ..order }); }
+          TypeOrder::Buy => { self.buy_book.add_order(Order { quantity: need, ..order }); }
+        }
+      }
     }
+    let book = match order.type_order {
+      TypeOrder::Sell => &mut self.buy_book,
+      TypeOrder::Buy => &mut self.sell_book,
+    };
+    remove.into_iter().for_each(|x| {
+      book.references.remove(&x);
+    });
+    add.into_iter().for_each(|(_, x)| {
+      book.add_order(x);
+    });
   }
 
   pub fn erase_order(&mut self, hash: i64, order_type: TypeOrder) {
